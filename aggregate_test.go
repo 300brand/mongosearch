@@ -1,57 +1,42 @@
 package mongosearch
 
 import (
+	"bytes"
+	"encoding/json"
 	"github.com/300brand/searchquery"
-	"labix.org/v2/mgo/bson"
+	"strings"
 	"testing"
 )
 
 var aggregates = []struct {
 	Query  string
-	Expect bson.M
+	Expect string
 }{
 	{
 		"date>='2014-06-01 00:00:00' AND date<='2014-06-07 00:00:00' AND (a OR b)",
-		bson.M{
-			"$and": []bson.M{
-				bson.M{"date": bson.M{"$gte": "2014-06-01 00:00:00"}},
-				bson.M{"date": bson.M{"$lte": "2014-06-07 00:00:00"}},
-				bson.M{
-					"$or": []bson.M{
-						bson.M{"keywords": bson.M{"$all": []string{"a"}}},
-						bson.M{"keywords": bson.M{"$all": []string{"b"}}},
-					},
-				},
-			},
-		},
+		`{
+			"$and": [
+				{"date": {"$gte": "2014-06-01T00:00:00Z"}},
+				{"date": {"$lte": "2014-06-07T00:00:00Z"}},
+				{
+					"$or": [
+						{"keywords": {"$all": ["a"]}},
+						{"keywords": {"$all": ["b"]}}
+					]
+				}
+			]
+		}`,
 	},
 }
 
-func a() {
-	_ = bson.M{
-		"$and": []bson.M{
-			bson.M{
-				"date": bson.M{
-					"$gte": nil,
-				},
-			},
-			bson.M{
-				"date": bson.M{
-					"$lte": nil,
-				},
-			},
-			bson.M{
-				"$or": []bson.M{},
-			},
-		},
-	}
-}
-
 func TestPrepareAggregate(t *testing.T) {
-	s, err := New(ServerAddr, "Items", ServerAddr, "Results", "allwords", "date", "keywords")
+	s, err := New(ServerAddr, "Items", ServerAddr, "Results")
 	if err != nil {
 		t.Fatalf("Error connecting: %s", err)
 	}
+	s.Convert("keywords", ConvertSpaces)
+	s.Convert("date", ConvertDate)
+	s.Convert("pubid", ConvertBsonId)
 
 	for _, a := range aggregates {
 		query, err := searchquery.ParseGreedy(a.Query)
@@ -62,6 +47,31 @@ func TestPrepareAggregate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Error building query: %s - %s", query, err)
 		}
-		t.Logf("%#v", q)
+
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		dec := json.NewDecoder(strings.NewReader(a.Expect))
+		dec.UseNumber()
+
+		var v interface{}
+		if err := dec.Decode(&v); err != nil {
+			t.Fatalf("Error decoding expected result: %s\n%s", err, a.Expect)
+		}
+		if err := enc.Encode(&v); err != nil {
+			t.Fatalf("Error re-encoding expected result: %s", err)
+		}
+		expect := make([]byte, buf.Len())
+		copy(expect, buf.Bytes())
+		buf.Reset()
+		if err := enc.Encode(&q); err != nil {
+			t.Fatalf("Error encoding generated query: %s", err)
+		}
+		got := buf.Bytes()
+		if !bytes.Equal(expect, got) {
+			t.Logf("Query does not match expected")
+			t.Logf("Expected: %s", expect)
+			t.Logf("Got:      %s", got)
+			t.Fail()
+		}
 	}
 }
