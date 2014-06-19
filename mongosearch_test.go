@@ -16,7 +16,7 @@ var pubs = []bson.ObjectId{
 	bson.ObjectIdHex("300000000000000000000000"),
 }
 
-func xTestQuery(t *testing.T) {
+func TestQuery(t *testing.T) {
 	resetDB(t)
 
 	s, err := New(ServerAddr, "Items", ServerAddr, "Results")
