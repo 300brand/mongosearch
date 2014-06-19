@@ -8,12 +8,18 @@ import (
 	"testing"
 )
 
+// newDoc(1, "2014-06-01", "a 0 b 1 c 2 d"),
+// newDoc(2, "2014-06-02", "a 0 1 b 0 c d e 2 f"),
+// newDoc(3, "2014-06-02", "a 1 2 b 0 c e 2 g"),
+// newDoc(4, "2014-06-03", "0 1 b 0 2"),
+// newDoc(5, "2014-06-04", "a a b b c c"),
+
 var aggregates = []struct {
 	Query  string
 	Expect string
 }{
 	{
-		"date>='2014-06-01 00:00:00' AND date<='2014-06-07 00:00:00' AND (a OR b)",
+		"date>='2014-06-01 00:00:00' AND date<='2014-06-07 00:00:00' AND keywords:(a OR b)",
 		`{
 			"$and": [
 				{"date": {"$gte": "2014-06-01T00:00:00Z"}},
@@ -27,6 +33,41 @@ var aggregates = []struct {
 			]
 		}`,
 	},
+	{
+		"date>='2014-06-01 00:00:00' AND date<='2014-06-07 00:00:00' AND ('a 0 b')",
+		`{
+			"$and": [
+				{"date": {"$gte": "2014-06-01T00:00:00Z"}},
+				{"date": {"$lte": "2014-06-07T00:00:00Z"}},
+				{
+					"$and": [
+						{"keywords": {"$all": ["a", "0", "b"]}}
+					]
+				}
+			]
+		}`,
+	},
+	{
+		"('CDW' OR 'CDW-G' OR 'CDWG') NOT ('collision damage waiver')",
+		`{
+			"$and": [
+				{
+					"$or": [
+						{"keywords": {"$all": ["CDW"]}},
+						{"keywords": {"$all": ["CDW-G"]}},
+						{"keywords": {"$all": ["CDWG"]}}
+					]
+				}
+			],
+			"$nor": [
+				{
+					"$and": [
+						{"keywords": {"$all": ["collision", "damage", "waiver"]}}
+					]
+				}
+			]
+		}`,
+	},
 }
 
 func TestPrepareAggregate(t *testing.T) {
@@ -34,6 +75,7 @@ func TestPrepareAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error connecting: %s", err)
 	}
+	s.Rewrite("", "keywords")
 	s.Convert("keywords", ConvertSpaces)
 	s.Convert("date", ConvertDate)
 	s.Convert("pubid", ConvertBsonId)
