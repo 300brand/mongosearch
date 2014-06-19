@@ -27,7 +27,3 @@ var ConvertSpaces Conversion = func(in string) (out interface{}, isArray bool, e
 	isArray, out = true, strings.Fields(in)
 	return
 }
-
-var ConvertStops Conversion = func(in string) (out interface{}, isArray bool, err error) {
-	return
-}
