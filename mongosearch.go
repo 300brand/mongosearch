@@ -6,7 +6,6 @@ import (
 	"github.com/300brand/searchquery"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
-	"strings"
 	"time"
 )
 
@@ -14,6 +13,7 @@ type MongoSearch struct {
 	CollItems   string                // Collection of items to search
 	CollResults string                // Search resutls collection
 	Fields      map[string]Conversion // Field -> Conversion map; if field not found, entire string used
+	Rewrites    map[string]string     // Rewrite rules for final query output (allows simpler inbound queries and rewrite of default "" field)
 	UrlItems    string                // Connection string to Items database and collection: host:port/db
 	UrlResults  string                // Connection string to Results database and collection: host:port/db
 	cItems      *mgo.Collection
@@ -30,8 +30,9 @@ func New(urlItems, cItems, urlResults, cResults string) (s *MongoSearch, err err
 		UrlResults:  urlResults,
 	}
 	s.Fields = map[string]Conversion{
-		"": ConvertStops,
+		"": ConvertSpaces,
 	}
+	s.Rewrites = make(map[string]string)
 	sess, err := mgo.Dial(urlItems)
 	if err != nil {
 		return
@@ -48,6 +49,10 @@ func New(urlItems, cItems, urlResults, cResults string) (s *MongoSearch, err err
 
 func (s *MongoSearch) Convert(field string, convertFunc Conversion) {
 	s.Fields[field] = convertFunc
+}
+
+func (s *MongoSearch) Rewrite(field, newName string) {
+	s.Rewrites[field] = newName
 }
 
 func (s *MongoSearch) Search(query string) (id bson.ObjectId, err error) {
@@ -128,7 +133,7 @@ func (s *MongoSearch) buildQuery(query *searchquery.Query) (mgoQuery bson.M, err
 	if err = loop(query.Optional, "$or"); err != nil {
 		return
 	}
-	if err = loop(query.Excluded, "$not"); err != nil {
+	if err = loop(query.Excluded, "$nor"); err != nil {
 		return
 	}
 	return
@@ -147,6 +152,10 @@ func (s *MongoSearch) buildSubquery(subquery *searchquery.SubQuery) (mgoSubquery
 		field                    = subquery.Field
 		value        interface{} = subquery.Value
 	)
+
+	if newName, ok := s.Rewrites[field]; ok {
+		field = newName
+	}
 
 	if convertFunc, ok := s.Fields[field]; ok {
 		if value, isArray, err = convertFunc(subquery.Value); err != nil {
