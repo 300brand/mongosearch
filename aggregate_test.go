@@ -8,12 +8,13 @@ import (
 	"testing"
 )
 
-var aggregates = []struct {
-	Query  string
-	Expect string
+var queries = []struct {
+	In    string
+	Query string
+	Scope string
 }{
 	{
-		"date>='2014-06-01 00:00:00' AND date<='2014-06-07 00:00:00' AND keywords:(a OR b)",
+		"date>='2014-06-01 00:00:00' AND date<='2014-06-07 00:00:00' AND (a OR b)",
 		`{
 			"$and": [
 				{"date": {"$gte": "2014-06-01T00:00:00Z"}},
@@ -23,6 +24,13 @@ var aggregates = []struct {
 						{"keywords": {"$all": ["a"]}},
 						{"keywords": {"$all": ["b"]}}
 					]
+				}
+			]
+		}`,
+		`{
+			"and": [
+				{
+					"or": [ "a", "b" ]
 				}
 			]
 		}`,
@@ -40,6 +48,13 @@ var aggregates = []struct {
 				}
 			]
 		}`,
+		`{
+			"and": [
+				{
+					"and": [ "a 0 b" ]
+				}
+			]
+		}`,
 	},
 	{
 		"('CDW' OR 'CDW-G' OR 'CDWG') NOT ('collision damage waiver')",
@@ -54,11 +69,23 @@ var aggregates = []struct {
 				}
 			]
 		}`,
+		`{
+			"and": [
+				{
+					"or": [ "CDW", "CDW-G", "CDWG" ]
+				}
+			],
+			"nor": [
+				{
+					"and": [ "collision damage waiver" ]
+				}
+			]
+		}`,
 	},
 }
 
-func TestPrepareAggregate(t *testing.T) {
-	s, err := New(ServerAddr, "Items", ServerAddr, "Results")
+func TestBuild(t *testing.T) {
+	s, err := New("", "Items", "Results")
 	if err != nil {
 		t.Fatalf("Error connecting: %s", err)
 	}
@@ -67,40 +94,47 @@ func TestPrepareAggregate(t *testing.T) {
 	s.Convert("date", ConvertDate)
 	s.Convert("pubid", ConvertBsonId)
 
-	for _, a := range aggregates {
-		query, err := searchquery.ParseGreedy(a.Query)
+	for _, q := range queries {
+		query, err := searchquery.ParseGreedy(q.In)
 		if err != nil {
 			t.Fatalf("Error parsing query: %s", err)
 		}
-		q, err := s.buildQuery(query)
+		built, err := s.buildQuery(query)
 		if err != nil {
 			t.Fatalf("Error building query: %s - %s", query, err)
 		}
+		scope, err := s.buildScope(query)
+		if err != nil {
+			t.Fatalf("Error building scope: %s - %s", query, err)
+		}
 
-		var buf bytes.Buffer
-		enc := json.NewEncoder(&buf)
-		dec := json.NewDecoder(strings.NewReader(a.Expect))
-		dec.UseNumber()
+		testResult := func(in interface{}, expected string) {
+			var buf bytes.Buffer
+			enc := json.NewEncoder(&buf)
+			dec := json.NewDecoder(strings.NewReader(expected))
 
-		var v interface{}
-		if err := dec.Decode(&v); err != nil {
-			t.Fatalf("Error decoding expected result: %s\n%s", err, a.Expect)
+			var v interface{}
+			if err := dec.Decode(&v); err != nil {
+				t.Fatalf("Error decoding expected result: %s\n%s", err, expected)
+			}
+			if err := enc.Encode(&v); err != nil {
+				t.Fatalf("Error re-encoding expected result: %s", err)
+			}
+			expect := make([]byte, buf.Len())
+			copy(expect, buf.Bytes())
+			buf.Reset()
+			if err := enc.Encode(&in); err != nil {
+				t.Fatalf("Error encoding generated value: %s", err)
+			}
+			got := buf.Bytes()
+			if !bytes.Equal(expect, got) {
+				t.Logf("Does not match expected")
+				t.Logf("Expected: %s", expect)
+				t.Logf("Got:      %s", got)
+				t.Fail()
+			}
 		}
-		if err := enc.Encode(&v); err != nil {
-			t.Fatalf("Error re-encoding expected result: %s", err)
-		}
-		expect := make([]byte, buf.Len())
-		copy(expect, buf.Bytes())
-		buf.Reset()
-		if err := enc.Encode(&q); err != nil {
-			t.Fatalf("Error encoding generated query: %s", err)
-		}
-		got := buf.Bytes()
-		if !bytes.Equal(expect, got) {
-			t.Logf("Query does not match expected")
-			t.Logf("Expected: %s", expect)
-			t.Logf("Got:      %s", got)
-			t.Fail()
-		}
+		testResult(built, q.Query)
+		testResult(scope, q.Scope)
 	}
 }
