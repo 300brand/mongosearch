@@ -1,6 +1,7 @@
 package mongosearch
 
 import (
+	"flag"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	"strings"
@@ -8,7 +9,7 @@ import (
 	"time"
 )
 
-const ServerAddr = "192.168.20.15:49154/testdb"
+var ServerAddr = flag.String("serverAddr", "", "Connection string to mongodb. Tests do not run if this is empty")
 
 var pubs = []bson.ObjectId{
 	bson.ObjectIdHex("100000000000000000000000"),
@@ -17,9 +18,13 @@ var pubs = []bson.ObjectId{
 }
 
 func TestQuery(t *testing.T) {
+	if *ServerAddr == "" {
+		t.Skip("No mongo server provided")
+	}
+
 	resetDB(t)
 
-	s, err := New(ServerAddr, "Items", ServerAddr, "Results")
+	s, err := New(*ServerAddr, "Items", "Results")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +36,7 @@ func TestQuery(t *testing.T) {
 }
 
 func resetDB(t *testing.T) {
-	sess, err := mgo.Dial(ServerAddr)
+	sess, err := mgo.Dial(*ServerAddr)
 	if err != nil {
 		t.Fatalf("Error connecting: %s", err)
 	}
