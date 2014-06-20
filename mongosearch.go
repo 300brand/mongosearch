@@ -112,15 +112,24 @@ func (s *MongoSearch) doSearch(query string, filter bson.M, id bson.ObjectId) (e
 		return
 	}
 
+	if _, err = sess.DB(db).C(coll).UpdateId(id, bson.M{
+		"$set": bson.M{
+			"end":  time.Now(),
+			"info": info,
+		},
+	}); err != nil {
+		return
+	}
+
 	return
 }
 
 func (s *MongoSearch) buildQuery(query *searchquery.Query) (mgoQuery bson.M, err error) {
-	logger.Trace.Printf("buildQuery: R:%d O:%d E:%d", len(query.Required), len(query.Optional), len(query.Excluded))
+	// logger.Trace.Printf("buildQuery: R:%d O:%d E:%d", len(query.Required), len(query.Optional), len(query.Excluded))
 	mgoQuery = bson.M{}
 	loop := func(subQueries []searchquery.SubQuery, op string) (err error) {
 		if len(subQueries) > 0 {
-			logger.Trace.Printf("buildQuery: Making subs for %s with len: %d", op, len(subQueries))
+			// logger.Trace.Printf("buildQuery: Making subs for %s with len: %d", op, len(subQueries))
 			subs := make([]bson.M, 0, len(subQueries))
 			for _, sq := range subQueries {
 				built, err := s.buildSubquery(&sq)
@@ -146,7 +155,7 @@ func (s *MongoSearch) buildQuery(query *searchquery.Query) (mgoQuery bson.M, err
 }
 
 func (s *MongoSearch) buildSubquery(subquery *searchquery.SubQuery) (mgoSubquery bson.M, err error) {
-	logger.Trace.Printf("buildSubquery: %s %s %s", subquery.Field, subquery.Operator, subquery.Value)
+	// logger.Trace.Printf("buildSubquery: %s %s %s", subquery.Field, subquery.Operator, subquery.Value)
 
 	if subquery.Query != nil {
 		return s.buildQuery(subquery.Query)
@@ -218,11 +227,11 @@ func (s *MongoSearch) buildSubquery(subquery *searchquery.SubQuery) (mgoSubquery
 }
 
 func (s *MongoSearch) buildScope(query *searchquery.Query) (scope bson.M, err error) {
-	logger.Trace.Printf("buildScope: R:%d O:%d E:%d", len(query.Required), len(query.Optional), len(query.Excluded))
+	// logger.Trace.Printf("buildScope: R:%d O:%d E:%d", len(query.Required), len(query.Optional), len(query.Excluded))
 	scope = bson.M{}
 	loop := func(subQueries []searchquery.SubQuery, op string) (err error) {
 		if len(subQueries) > 0 {
-			logger.Trace.Printf("buildScope: Making subs for %s with len: %d", op, len(subQueries))
+			// logger.Trace.Printf("buildScope: Making subs for %s with len: %d", op, len(subQueries))
 			subs := make([]interface{}, 0, len(subQueries))
 			for _, sq := range subQueries {
 				built, err := s.buildSubscope(&sq)
@@ -251,7 +260,7 @@ func (s *MongoSearch) buildScope(query *searchquery.Query) (scope bson.M, err er
 }
 
 func (s *MongoSearch) buildSubscope(subquery *searchquery.SubQuery) (subscope interface{}, err error) {
-	logger.Trace.Printf("buildSubquery: %s %s %s", subquery.Field, subquery.Operator, subquery.Value)
+	// logger.Trace.Printf("buildSubscope: %s %s %s", subquery.Field, subquery.Operator, subquery.Value)
 
 	if subquery.Query != nil {
 		return s.buildScope(subquery.Query)
