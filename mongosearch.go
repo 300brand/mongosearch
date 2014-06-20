@@ -6,6 +6,7 @@ import (
 	"github.com/300brand/searchquery"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
+	"strings"
 	"time"
 )
 
@@ -15,34 +16,24 @@ type MongoSearch struct {
 	Fields      map[string]Conversion // Field -> Conversion map; if field not found, entire string used
 	Rewrites    map[string]string     // Rewrite rules for final query output (allows simpler inbound queries and rewrite of default "" field)
 	Url         string                // Connection string to database: host:port/db
-	dbItems     string                // Name of Items database
-	dbResults   string                // Name of Results database
-
 }
 
 var TimeLayout = "2006-01-02 15:04:05"
 
-func New(url, cItems, cResults string) (s *MongoSearch, err error) {
+// serverUrl - Yup.
+// cItems    -
+// cResults  - Collection name in the form <db>.<coll> or <coll> (db from
+//             connection string is uesd)
+func New(serverUrl, cItems, cResults string) (s *MongoSearch, err error) {
 	s = &MongoSearch{
 		CollItems:   cItems,
 		CollResults: cResults,
-		Url:         url,
+		Url:         serverUrl,
 	}
 	s.Fields = map[string]Conversion{
 		"": ConvertSpaces,
 	}
 	s.Rewrites = make(map[string]string)
-	sess, err := mgo.Dial(urlItems)
-	if err != nil {
-		return
-	}
-	s.cItems = sess.DB("").C(cItems)
-
-	sess, err = mgo.Dial(urlResults)
-	if err != nil {
-		return
-	}
-	s.cResults = sess.DB("").C(cResults)
 	return
 }
 
@@ -82,7 +73,23 @@ func (s *MongoSearch) SearchInto(query string, id bson.ObjectId) (err error) {
 	return s.doSearch(query, bson.M{}, id)
 }
 
+func (s *MongoSearch) dbFor(session *mgo.Session, collection string) (db, coll string) {
+	bits := strings.SplitN(collection, ".", 2)
+	if len(bits) == 1 {
+		return session.DB("").Name, bits[0]
+	}
+	return bits[0], bits[1]
+}
+
 func (s *MongoSearch) doSearch(query string, filter bson.M, id bson.ObjectId) (err error) {
+	sess, err := mgo.Dial(s.Url)
+	if err != nil {
+		return
+	}
+	defer sess.Close()
+
+	db, coll := s.dbFor(sess, s.CollResults)
+
 	q, err := searchquery.Parse(query)
 	if err != nil {
 		return
@@ -93,7 +100,7 @@ func (s *MongoSearch) doSearch(query string, filter bson.M, id bson.ObjectId) (e
 		return
 	}
 	logger.Info.Printf("Aggregate: %+v", a)
-	if _, err = s.cResults.UpsertId(id, bson.M{
+	if _, err = sess.DB(db).C(coll).UpsertId(id, bson.M{
 		"$set": bson.M{
 			"query": bson.M{
 				"original": query,
@@ -247,7 +254,7 @@ func (s *MongoSearch) buildSubscope(subquery *searchquery.SubQuery) (subscope in
 	logger.Trace.Printf("buildSubquery: %s %s %s", subquery.Field, subquery.Operator, subquery.Value)
 
 	if subquery.Query != nil {
-		return s.buildQuery(subquery.Query)
+		return s.buildScope(subquery.Query)
 	}
 
 	if subquery.Field != "" {
@@ -257,7 +264,7 @@ func (s *MongoSearch) buildSubscope(subquery *searchquery.SubQuery) (subscope in
 	return subquery.Value, nil
 }
 
-func (s *MongoSearch) doMapReduce(query *searchquery.Query, id bson.ObjectId) (info *mgo.MapReduceInfo, err error) {
+func (s *MongoSearch) doMapReduce(session *mgo.Session, query *searchquery.Query, id bson.ObjectId) (info *mgo.MapReduceInfo, err error) {
 	mgoQuery, err := s.buildQuery(query)
 	if err != nil {
 		return
@@ -266,15 +273,21 @@ func (s *MongoSearch) doMapReduce(query *searchquery.Query, id bson.ObjectId) (i
 	if err != nil {
 		return
 	}
-	job := mgo.MapReduce{
+
+	db, coll := s.dbFor(session, s.CollResults)
+	coll = fmt.Sprintf("%s_%s", coll, id.Hex())
+
+	job := &mgo.MapReduce{
 		Map:    mapFunc,
 		Reduce: `function(key, values) { return values[0] }`,
 		Out: bson.M{
-			"replace": fmt.Sprintf("%s_%s", s.cResults.Name, id.Hex()),
-			"db":      s.cResults.Database,
+			"replace": coll,
+			"db":      db,
 		},
 		Scope:   scope,
 		Verbose: true,
 	}
-	return s.cItems.Find(mgoQuery).MapReduce(job, nil)
+
+	db, coll = s.dbFor(session, s.CollItems)
+	return session.DB(db).C(coll).Find(mgoQuery).MapReduce(job, nil)
 }
