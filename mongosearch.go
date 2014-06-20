@@ -82,13 +82,13 @@ func (s *MongoSearch) dbFor(session *mgo.Session, collection string) (db, coll s
 }
 
 func (s *MongoSearch) doSearch(query string, filter bson.M, id bson.ObjectId) (err error) {
-	sess, err := mgo.Dial(s.Url)
+	session, err := mgo.Dial(s.Url)
 	if err != nil {
 		return
 	}
-	defer sess.Close()
+	defer session.Close()
 
-	db, coll := s.dbFor(sess, s.CollResults)
+	db, coll := s.dbFor(session, s.CollResults)
 
 	q, err := searchquery.Parse(query)
 	if err != nil {
@@ -100,7 +100,7 @@ func (s *MongoSearch) doSearch(query string, filter bson.M, id bson.ObjectId) (e
 		return
 	}
 	logger.Info.Printf("Aggregate: %+v", a)
-	if _, err = sess.DB(db).C(coll).UpsertId(id, bson.M{
+	if _, err = session.DB(db).C(coll).UpsertId(id, bson.M{
 		"$set": bson.M{
 			"query": bson.M{
 				"original": query,
@@ -112,7 +112,12 @@ func (s *MongoSearch) doSearch(query string, filter bson.M, id bson.ObjectId) (e
 		return
 	}
 
-	if _, err = sess.DB(db).C(coll).UpdateId(id, bson.M{
+	info, err := s.doMapReduce(session, q, id)
+	if err != nil {
+		return
+	}
+
+	if err = session.DB(db).C(coll).UpdateId(id, bson.M{
 		"$set": bson.M{
 			"end":  time.Now(),
 			"info": info,
