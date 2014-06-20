@@ -14,20 +14,19 @@ type MongoSearch struct {
 	CollResults string                // Search resutls collection
 	Fields      map[string]Conversion // Field -> Conversion map; if field not found, entire string used
 	Rewrites    map[string]string     // Rewrite rules for final query output (allows simpler inbound queries and rewrite of default "" field)
-	UrlItems    string                // Connection string to Items database and collection: host:port/db
-	UrlResults  string                // Connection string to Results database and collection: host:port/db
-	cItems      *mgo.Collection
-	cResults    *mgo.Collection
+	Url         string                // Connection string to database: host:port/db
+	dbItems     string                // Name of Items database
+	dbResults   string                // Name of Results database
+
 }
 
 var TimeLayout = "2006-01-02 15:04:05"
 
-func New(urlItems, cItems, urlResults, cResults string) (s *MongoSearch, err error) {
+func New(url, cItems, cResults string) (s *MongoSearch, err error) {
 	s = &MongoSearch{
 		CollItems:   cItems,
 		CollResults: cResults,
-		UrlItems:    urlItems,
-		UrlResults:  urlResults,
+		Url:         url,
 	}
 	s.Fields = map[string]Conversion{
 		"": ConvertSpaces,
@@ -114,7 +113,7 @@ func (s *MongoSearch) buildQuery(query *searchquery.Query) (mgoQuery bson.M, err
 	mgoQuery = bson.M{}
 	loop := func(subQueries []searchquery.SubQuery, op string) (err error) {
 		if len(subQueries) > 0 {
-			logger.Trace.Printf("Making subs for %s with len: %d", op, len(subQueries))
+			logger.Trace.Printf("buildQuery: Making subs for %s with len: %d", op, len(subQueries))
 			subs := make([]bson.M, 0, len(subQueries))
 			for _, sq := range subQueries {
 				built, err := s.buildSubquery(&sq)
@@ -133,9 +132,9 @@ func (s *MongoSearch) buildQuery(query *searchquery.Query) (mgoQuery bson.M, err
 	if err = loop(query.Optional, "$or"); err != nil {
 		return
 	}
-	if err = loop(query.Excluded, "$nor"); err != nil {
-		return
-	}
+	// if err = loop(query.Excluded, "$nor"); err != nil {
+	// 	return
+	// }
 	return
 }
 
@@ -209,4 +208,73 @@ func (s *MongoSearch) buildSubquery(subquery *searchquery.SubQuery) (mgoSubquery
 		field: value,
 	}
 	return
+}
+
+func (s *MongoSearch) buildScope(query *searchquery.Query) (scope bson.M, err error) {
+	logger.Trace.Printf("buildScope: R:%d O:%d E:%d", len(query.Required), len(query.Optional), len(query.Excluded))
+	scope = bson.M{}
+	loop := func(subQueries []searchquery.SubQuery, op string) (err error) {
+		if len(subQueries) > 0 {
+			logger.Trace.Printf("buildScope: Making subs for %s with len: %d", op, len(subQueries))
+			subs := make([]interface{}, 0, len(subQueries))
+			for _, sq := range subQueries {
+				built, err := s.buildSubscope(&sq)
+				if err != nil {
+					return err
+				}
+				if built == nil {
+					continue
+				}
+				subs = append(subs, built)
+			}
+			scope[op] = subs
+		}
+		return
+	}
+	if err = loop(query.Required, "and"); err != nil {
+		return
+	}
+	if err = loop(query.Optional, "or"); err != nil {
+		return
+	}
+	if err = loop(query.Excluded, "nor"); err != nil {
+		return
+	}
+	return
+}
+
+func (s *MongoSearch) buildSubscope(subquery *searchquery.SubQuery) (subscope interface{}, err error) {
+	logger.Trace.Printf("buildSubquery: %s %s %s", subquery.Field, subquery.Operator, subquery.Value)
+
+	if subquery.Query != nil {
+		return s.buildQuery(subquery.Query)
+	}
+
+	if subquery.Field != "" {
+		return
+	}
+
+	return subquery.Value, nil
+}
+
+func (s *MongoSearch) doMapReduce(query *searchquery.Query, id bson.ObjectId) (info *mgo.MapReduceInfo, err error) {
+	mgoQuery, err := s.buildQuery(query)
+	if err != nil {
+		return
+	}
+	scope, err := s.buildScope(query)
+	if err != nil {
+		return
+	}
+	job := mgo.MapReduce{
+		Map:    mapFunc,
+		Reduce: `function(key, values) { return values[0] }`,
+		Out: bson.M{
+			"replace": fmt.Sprintf("%s_%s", s.cResults.Name, id.Hex()),
+			"db":      s.cResults.Database,
+		},
+		Scope:   scope,
+		Verbose: true,
+	}
+	return s.cItems.Find(mgoQuery).MapReduce(job, nil)
 }
