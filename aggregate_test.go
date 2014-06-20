@@ -8,12 +8,6 @@ import (
 	"testing"
 )
 
-// newDoc(1, "2014-06-01", "a 0 b 1 c 2 d"),
-// newDoc(2, "2014-06-02", "a 0 1 b 0 c d e 2 f"),
-// newDoc(3, "2014-06-02", "a 1 2 b 0 c e 2 g"),
-// newDoc(4, "2014-06-03", "0 1 b 0 2"),
-// newDoc(5, "2014-06-04", "a a b b c c"),
-
 var aggregates = []struct {
 	Query  string
 	Expect string
@@ -56,13 +50,6 @@ var aggregates = []struct {
 						{"keywords": {"$all": ["CDW"]}},
 						{"keywords": {"$all": ["CDW-G"]}},
 						{"keywords": {"$all": ["CDWG"]}}
-					]
-				}
-			],
-			"$nor": [
-				{
-					"$and": [
-						{"keywords": {"$all": ["collision", "damage", "waiver"]}}
 					]
 				}
 			]
