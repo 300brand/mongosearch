@@ -24,10 +24,11 @@ func TestQuery(t *testing.T) {
 
 	resetDB(t)
 
-	s, err := New(*ServerAddr, "Items", "Results")
+	s, err := New(*ServerAddr, "Items", "Results", "all")
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.Rewrite("", "keywords")
 	id, err := s.Search("a OR b")
 	if err != nil {
 		t.Fatal(err)

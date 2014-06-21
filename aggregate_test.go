@@ -85,7 +85,7 @@ var queries = []struct {
 }
 
 func TestBuild(t *testing.T) {
-	s, err := New("", "Items", "Results")
+	s, err := New("", "Items", "Results", "")
 	if err != nil {
 		t.Fatalf("Error connecting: %s", err)
 	}

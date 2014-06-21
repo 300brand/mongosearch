@@ -11,11 +11,12 @@ import (
 )
 
 type MongoSearch struct {
-	CollItems   string                // Collection of items to search
-	CollResults string                // Search resutls collection
-	Fields      map[string]Conversion // Field -> Conversion map; if field not found, entire string used
-	Rewrites    map[string]string     // Rewrite rules for final query output (allows simpler inbound queries and rewrite of default "" field)
-	Url         string                // Connection string to database: host:port/db
+	AllWordsField string
+	CollItems     string                // Collection of items to search
+	CollResults   string                // Search resutls collection
+	Fields        map[string]Conversion // Field -> Conversion map; if field not found, entire string used
+	Rewrites      map[string]string     // Rewrite rules for final query output (allows simpler inbound queries and rewrite of default "" field)
+	Url           string                // Connection string to database: host:port/db
 }
 
 var TimeLayout = "2006-01-02 15:04:05"
@@ -24,11 +25,12 @@ var TimeLayout = "2006-01-02 15:04:05"
 // cItems    -
 // cResults  - Collection name in the form <db>.<coll> or <coll> (db from
 //             connection string is uesd)
-func New(serverUrl, cItems, cResults string) (s *MongoSearch, err error) {
+func New(serverUrl, cItems, cResults, allWordsField string) (s *MongoSearch, err error) {
 	s = &MongoSearch{
-		CollItems:   cItems,
-		CollResults: cResults,
-		Url:         serverUrl,
+		CollItems:     cItems,
+		CollResults:   cResults,
+		Url:           serverUrl,
+		AllWordsField: allWordsField,
 	}
 	s.Fields = map[string]Conversion{
 		"": ConvertSpaces,
@@ -279,26 +281,31 @@ func (s *MongoSearch) buildSubscope(subquery *searchquery.SubQuery) (subscope in
 }
 
 func (s *MongoSearch) doMapReduce(session *mgo.Session, query *searchquery.Query, id bson.ObjectId) (info *mgo.MapReduceInfo, err error) {
+	logger.Trace.Printf("doMapReduce: starting")
 	mgoQuery, err := s.buildQuery(query)
 	if err != nil {
 		return
 	}
+	logger.Trace.Printf("doMapReduce: mgoQuery: %+v", mgoQuery)
 	scope, err := s.buildScope(query)
 	if err != nil {
 		return
 	}
+	logger.Trace.Printf("doMapReduce: scope: %+v", scope)
 
 	db, coll := s.dbFor(session, s.CollResults)
 	coll = fmt.Sprintf("%s_%s", coll, id.Hex())
 
 	job := &mgo.MapReduce{
-		Map:    mapFunc,
+		Map:    fmt.Sprintf(mapFunc, s.AllWordsField),
 		Reduce: `function(key, values) { return values[0] }`,
 		Out: bson.M{
 			"replace": coll,
 			"db":      db,
 		},
-		Scope:   scope,
+		Scope: bson.M{
+			"query": scope,
+		},
 		Verbose: true,
 	}
 

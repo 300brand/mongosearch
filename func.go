@@ -72,7 +72,7 @@ function() {
 	}
 
 	// Put the funcs to good use
-	var all = this.text.words.all
+	var all = this.%s
 	var o = {
 		query: query,
 		result: JSON.parse(JSON.stringify(query))
