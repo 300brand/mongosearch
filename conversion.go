@@ -27,3 +27,13 @@ var ConvertSpaces Conversion = func(in string) (out interface{}, isArray bool, e
 	isArray, out = true, strings.Fields(in)
 	return
 }
+
+var ConvertDateInt Conversion = func(in string) (out interface{}, isArray bool, err error) {
+	t, err := time.Parse(TimeLayout, in)
+	if err != nil {
+		return
+	}
+	y, m, d := t.Date()
+	out = y*1e4 + int(m)*1e2 + d
+	return
+}

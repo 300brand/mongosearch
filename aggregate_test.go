@@ -82,6 +82,21 @@ var queries = []struct {
 			]
 		}`,
 	},
+	{
+		"intdate:('2014-06-01 00:00:00' OR '2014-06-02 08:00:00' OR '2014-06-03 05:00:00')",
+		`{
+			"$and": [
+				{
+					"$or": [
+						{"intdate": 20140601},
+						{"intdate": 20140602},
+						{"intdate": 20140603}
+					]
+				}
+			]
+		}`,
+		`{ "and": [ { "or": [] } ] }`,
+	},
 }
 
 func TestBuild(t *testing.T) {
@@ -92,6 +107,7 @@ func TestBuild(t *testing.T) {
 	s.Rewrite("", "keywords")
 	s.Convert("keywords", ConvertSpaces)
 	s.Convert("date", ConvertDate)
+	s.Convert("intdate", ConvertDateInt)
 	s.Convert("pubid", ConvertBsonId)
 
 	for _, q := range queries {
@@ -112,6 +128,7 @@ func TestBuild(t *testing.T) {
 			var buf bytes.Buffer
 			enc := json.NewEncoder(&buf)
 			dec := json.NewDecoder(strings.NewReader(expected))
+			dec.UseNumber()
 
 			var v interface{}
 			if err := dec.Decode(&v); err != nil {
