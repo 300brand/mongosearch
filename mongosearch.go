@@ -90,6 +90,8 @@ func (s *MongoSearch) doSearch(query string, filter bson.M, id bson.ObjectId) (e
 	}
 	defer session.Close()
 
+	session.SetSocketTimeout(60 * time.Minute)
+
 	db, coll := s.dbFor(session, s.CollResults)
 
 	q, err := searchquery.Parse(query)
