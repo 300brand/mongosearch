@@ -58,13 +58,34 @@ function() {
 			}
 			switch (k) {
 			case "or":
-				ret = ret && eval(bools[k].join(" || "))
+				if (bools[k].length == 0) {
+					break
+				}
+				var subRet = bools[k][0]
+				for (var i = 1; i < bools[k].length; i++) {
+					subRet = subRet || bools[k][i]
+				}
+				ret = ret && subRet
 				break
 			case "and":
-				ret = ret && eval(bools[k].join(" && "))
+				if (bools[k].length == 0) {
+					break
+				}
+				var subRet = bools[k][0]
+				for (var i = 1; i < bools[k].length; i++) {
+					subRet = subRet && bools[k][i]
+				}
+				ret = ret && subRet
 				break
 			case "nor":
-				ret = ret && eval("!(" + bools[k].join(" || ") + ")")
+				if (bools[k].length == 0) {
+					break
+				}
+				var subRet = bools[k][0]
+				for (var i = 1; i < bools[k].length; i++) {
+					subRet = subRet || bools[k][i]
+				}
+				ret = ret && !subRet
 				break
 			}
 		}
