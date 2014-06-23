@@ -94,9 +94,15 @@ function() {
 
 	// Put the funcs to good use
 	var all = this.%s
+
+	// lowercase everything
+	for (var i = 0; i < all.length; i++) {
+		all[i] = all[i].toLowerCase()
+	}
+
 	var o = {
 		query: query,
-		result: JSON.parse(JSON.stringify(query))
+		result: JSON.parse(JSON.stringify(query).toLowerCase())
 	}
 	boolPhrases(o.result, all)
 	if (boolResult(o.result)) {
