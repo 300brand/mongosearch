@@ -97,6 +97,33 @@ var queries = []struct {
 		}`,
 		`{ "and": [ { "or": [] } ] }`,
 	},
+	{
+		`intdate:('2014-06-01 00:00:00' OR '2014-06-02 00:00:00') AND ("monkey" AND "banana") AND pubid:(53678fb4800b8e4c9d0002c9 OR 53678ea54113de7739000214 OR 53678ea54113de7739000211)`,
+		`{
+			"$and": [
+				{
+					"$or": [
+						{"intdate":20140601},
+						{"intdate":20140602}
+					]
+				},
+				{
+					"$and": [
+						{"keywords":{"$all":["monkey"]}},
+						{"keywords":{"$all":["banana"]}}
+					]
+				},
+				{
+					"$or": [
+						{"pubid":"53678fb4800b8e4c9d0002c9"},
+						{"pubid":"53678ea54113de7739000214"},
+						{"pubid":"53678ea54113de7739000211"}
+					]
+				}
+			]
+		}`,
+		`{"and":[{"or":[]},{"and":["monkey","banana"]},{"or":[]}]}`,
+	},
 }
 
 func TestBuild(t *testing.T) {
