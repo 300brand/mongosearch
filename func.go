@@ -1,5 +1,7 @@
 package mongosearch
 
+var mapFuncImmediate = `function() { emit(this._id, {}) }`
+
 var mapFunc = `
 function() {
 	// Checks to see if the phrase (array of single words) exists in the

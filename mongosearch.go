@@ -17,6 +17,7 @@ type MongoSearch struct {
 	Fields        map[string]Conversion // Field -> Conversion map; if field not found, entire string used
 	Rewrites      map[string]string     // Rewrite rules for final query output (allows simpler inbound queries and rewrite of default "" field)
 	Url           string                // Connection string to database: host:port/db
+	reqMapReduce  bool
 }
 
 var TimeLayout = "2006-01-02 15:04:05"
@@ -96,7 +97,9 @@ func (s *MongoSearch) buildQuery(query *searchquery.Query) (mgoQuery bson.M, err
 	// if err = s.loopSubqueries(query.Excluded, "$nor", mgoQuery); err != nil {
 	// 	return
 	// }
-
+	if len(query.Excluded) > 0 {
+		s.reqMapReduce = true
+	}
 	return
 }
 
@@ -242,6 +245,7 @@ func (s *MongoSearch) canOptimize(subqueries []searchquery.SubQuery) bool {
 
 		if isArray {
 			logger.Trace.Printf("canOptimize: %s is array", sq)
+			s.reqMapReduce = true
 			return false
 		}
 	}
@@ -266,7 +270,6 @@ func (s *MongoSearch) doMapReduce(session *mgo.Session, query *searchquery.Query
 	coll = fmt.Sprintf("%s_%s", coll, id.Hex())
 
 	job := &mgo.MapReduce{
-		Map:    fmt.Sprintf(mapFunc, s.AllWordsField),
 		Reduce: `function(key, values) { return values[0] }`,
 		Out: bson.M{
 			"replace": coll,
@@ -276,6 +279,12 @@ func (s *MongoSearch) doMapReduce(session *mgo.Session, query *searchquery.Query
 			"query": scope,
 		},
 		Verbose: true,
+	}
+
+	if s.reqMapReduce {
+		job.Map = fmt.Sprintf(mapFunc, s.AllWordsField)
+	} else {
+		job.Map = mapFuncImmediate
 	}
 
 	db, coll = s.dbFor(session, s.CollItems)

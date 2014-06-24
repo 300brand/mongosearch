@@ -12,6 +12,7 @@ var queries = []struct {
 	In    string
 	Query string
 	Scope string
+	ReqMR bool
 }{
 	{
 		"date>='2014-06-01 00:00:00' AND date<='2014-06-07 00:00:00' AND (a OR b)",
@@ -29,6 +30,7 @@ var queries = []struct {
 				}
 			]
 		}`,
+		false,
 	},
 	{
 		"date>='2014-06-01 00:00:00' AND date<='2014-06-07 00:00:00' AND ('a 0 b')",
@@ -50,6 +52,7 @@ var queries = []struct {
 				}
 			]
 		}`,
+		true,
 	},
 	{
 		"('CDW' OR 'CDW-G' OR 'CDWG') NOT ('collision damage waiver')",
@@ -70,6 +73,7 @@ var queries = []struct {
 				}
 			]
 		}`,
+		true,
 	},
 	{
 		"intdate:('2014-06-01 00:00:00' OR '2014-06-02 08:00:00' OR '2014-06-03 05:00:00')",
@@ -79,6 +83,7 @@ var queries = []struct {
 			]
 		}`,
 		`{ "and": [ { "or": [] } ] }`,
+		false,
 	},
 	{
 		`intdate:('2014-06-01 00:00:00' OR '2014-06-02 00:00:00') AND ("monkey" AND "banana") AND pubid:(53678fb4800b8e4c9d0002c9 OR 53678ea54113de7739000214 OR 53678ea54113de7739000211)`,
@@ -98,6 +103,7 @@ var queries = []struct {
 			]
 		}`,
 		`{"and":[{"or":[]},{"and":["monkey","banana"]},{"or":[]}]}`,
+		false,
 	},
 	{
 		`"data center" AND "Google"`,
@@ -113,6 +119,7 @@ var queries = []struct {
 				"Google"
 			]
 		}`,
+		true,
 	},
 }
 
@@ -139,6 +146,10 @@ func TestBuild(t *testing.T) {
 		scope, err := s.buildScope(query)
 		if err != nil {
 			t.Fatalf("Error building scope: %s - %s", query, err)
+		}
+		if s.reqMapReduce != q.ReqMR {
+			t.Logf("query: %s", q.In)
+			t.Fatalf("reqMapReduce should be %v", q.ReqMR)
 		}
 
 		testResult(t, built, q.Query)
