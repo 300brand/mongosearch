@@ -17,14 +17,9 @@ var queries = []struct {
 		"date>='2014-06-01 00:00:00' AND date<='2014-06-07 00:00:00' AND (a OR b)",
 		`{
 			"$and": [
-				{"date": {"$gte": "2014-06-01T00:00:00Z"}},
-				{"date": {"$lte": "2014-06-07T00:00:00Z"}},
-				{
-					"$or": [
-						{"keywords": {"$all": ["a"]}},
-						{"keywords": {"$all": ["b"]}}
-					]
-				}
+				{ "date": { "$gte": "2014-06-01T00:00:00Z" } },
+				{ "date": { "$lte": "2014-06-07T00:00:00Z" } },
+				{ "keywords": { "$in": [ "a", "b" ] } }
 			]
 		}`,
 		`{
@@ -60,13 +55,7 @@ var queries = []struct {
 		"('CDW' OR 'CDW-G' OR 'CDWG') NOT ('collision damage waiver')",
 		`{
 			"$and": [
-				{
-					"$or": [
-						{"keywords": {"$all": ["CDW"]}},
-						{"keywords": {"$all": ["CDW-G"]}},
-						{"keywords": {"$all": ["CDWG"]}}
-					]
-				}
+				{ "keywords": { "$in": [ "CDW", "CDW-G", "CDWG" ] } }
 			]
 		}`,
 		`{
@@ -86,13 +75,7 @@ var queries = []struct {
 		"intdate:('2014-06-01 00:00:00' OR '2014-06-02 08:00:00' OR '2014-06-03 05:00:00')",
 		`{
 			"$and": [
-				{
-					"$or": [
-						{"intdate": 20140601},
-						{"intdate": 20140602},
-						{"intdate": 20140603}
-					]
-				}
+				{ "intdate": { "$in": [ 20140601, 20140602, 20140603 ] } }
 			]
 		}`,
 		`{ "and": [ { "or": [] } ] }`,
@@ -101,43 +84,50 @@ var queries = []struct {
 		`intdate:('2014-06-01 00:00:00' OR '2014-06-02 00:00:00') AND ("monkey" AND "banana") AND pubid:(53678fb4800b8e4c9d0002c9 OR 53678ea54113de7739000214 OR 53678ea54113de7739000211)`,
 		`{
 			"$and": [
+				{ "intdate": { "$in": [ 20140601, 20140602 ] } },
+				{ "keywords": { "$all": [ "monkey", "banana" ] } },
 				{
-					"$or": [
-						{"intdate":20140601},
-						{"intdate":20140602}
-					]
-				},
-				{
-					"$and": [
-						{"keywords":{"$all":["monkey"]}},
-						{"keywords":{"$all":["banana"]}}
-					]
-				},
-				{
-					"$or": [
-						{"pubid":"53678fb4800b8e4c9d0002c9"},
-						{"pubid":"53678ea54113de7739000214"},
-						{"pubid":"53678ea54113de7739000211"}
-					]
+					"pubid": {
+						"$in": [
+							"53678fb4800b8e4c9d0002c9",
+							"53678ea54113de7739000214",
+							"53678ea54113de7739000211"
+						]
+					}
 				}
 			]
 		}`,
 		`{"and":[{"or":[]},{"and":["monkey","banana"]},{"or":[]}]}`,
 	},
+	{
+		`"data center" AND "Google"`,
+		`{
+			"$and": [
+				{ "keywords": { "$all": [ "data", "center" ] } },
+				{ "keywords": "Google" }
+			]
+		}`,
+		`{
+			"and": [
+				"data center",
+				"Google"
+			]
+		}`,
+	},
 }
 
 func TestBuild(t *testing.T) {
-	s, err := New("", "Items", "Results", "")
-	if err != nil {
-		t.Fatalf("Error connecting: %s", err)
-	}
-	s.Rewrite("", "keywords")
-	s.Convert("keywords", ConvertSpaces)
-	s.Convert("date", ConvertDate)
-	s.Convert("intdate", ConvertDateInt)
-	s.Convert("pubid", ConvertBsonId)
-
 	for _, q := range queries {
+		s, err := New("", "Items", "Results", "")
+		if err != nil {
+			t.Fatalf("Error connecting: %s", err)
+		}
+		s.Rewrite("", "keywords")
+		s.Convert("keywords", ConvertSpaces)
+		s.Convert("date", ConvertDate)
+		s.Convert("intdate", ConvertDateInt)
+		s.Convert("pubid", ConvertBsonId)
+
 		query, err := searchquery.ParseGreedy(q.In)
 		if err != nil {
 			t.Fatalf("Error parsing query: %s", err)
@@ -151,34 +141,40 @@ func TestBuild(t *testing.T) {
 			t.Fatalf("Error building scope: %s - %s", query, err)
 		}
 
-		testResult := func(in interface{}, expected string) {
-			var buf bytes.Buffer
-			enc := json.NewEncoder(&buf)
-			dec := json.NewDecoder(strings.NewReader(expected))
-			dec.UseNumber()
+		testResult(t, built, q.Query)
+		testResult(t, scope, q.Scope)
+	}
+}
 
-			var v interface{}
-			if err := dec.Decode(&v); err != nil {
-				t.Fatalf("Error decoding expected result: %s\n%s", err, expected)
-			}
-			if err := enc.Encode(&v); err != nil {
-				t.Fatalf("Error re-encoding expected result: %s", err)
-			}
-			expect := make([]byte, buf.Len())
-			copy(expect, buf.Bytes())
-			buf.Reset()
-			if err := enc.Encode(&in); err != nil {
-				t.Fatalf("Error encoding generated value: %s", err)
-			}
-			got := buf.Bytes()
-			if !bytes.Equal(expect, got) {
-				t.Logf("Does not match expected")
-				t.Logf("Expected: %s", expect)
-				t.Logf("Got:      %s", got)
-				t.Fail()
-			}
-		}
-		testResult(built, q.Query)
-		testResult(scope, q.Scope)
+func testResult(t *testing.T, in interface{}, expected string) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	dec := json.NewDecoder(strings.NewReader(expected))
+	dec.UseNumber()
+
+	var v interface{}
+	if err := dec.Decode(&v); err != nil {
+		t.Fatalf("Error decoding expected result: %s\n%s", err, expected)
+	}
+	if err := enc.Encode(&v); err != nil {
+		t.Fatalf("Error re-encoding expected result: %s", err)
+	}
+	expect := make([]byte, buf.Len())
+	copy(expect, buf.Bytes())
+	buf.Reset()
+	if err := enc.Encode(&in); err != nil {
+		t.Fatalf("Error encoding generated value: %s", err)
+	}
+	got := make([]byte, buf.Len())
+	copy(got, buf.Bytes())
+	if !bytes.Equal(expect, got) {
+		t.Logf("Does not match expected")
+		buf.Reset()
+		json.Indent(&buf, expect, "", "\t")
+		t.Logf("Expected:\n%s", buf.Bytes())
+		buf.Reset()
+		json.Indent(&buf, got, "", "\t")
+		t.Logf("Got:\n%s", buf.Bytes())
+		t.Fail()
 	}
 }

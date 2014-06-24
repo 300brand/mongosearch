@@ -83,109 +83,35 @@ func (s *MongoSearch) dbFor(session *mgo.Session, collection string) (db, coll s
 	return bits[0], bits[1]
 }
 
-func (s *MongoSearch) doSearch(query string, filter bson.M, id bson.ObjectId) (err error) {
-	session, err := mgo.Dial(s.Url)
-	if err != nil {
-		return
-	}
-	defer session.Close()
-
-	session.SetSocketTimeout(60 * time.Minute)
-
-	db, coll := s.dbFor(session, s.CollResults)
-
-	q, err := searchquery.Parse(query)
-	if err != nil {
-		return
-	}
-	logger.Info.Printf("Query: %+v", q)
-	a, err := s.buildQuery(q)
-	if err != nil {
-		return
-	}
-	logger.Info.Printf("Aggregate: %+v", a)
-	if _, err = session.DB(db).C(coll).UpsertId(id, bson.M{
-		"$set": bson.M{
-			"query": bson.M{
-				"original": query,
-				"parsed":   q.String(),
-			},
-			"start": time.Now(),
-		},
-	}); err != nil {
-		return
-	}
-
-	info, err := s.doMapReduce(session, q, id)
-	if err != nil {
-		return
-	}
-
-	if err = session.DB(db).C(coll).UpdateId(id, bson.M{
-		"$set": bson.M{
-			"end":  time.Now(),
-			"info": info,
-		},
-	}); err != nil {
-		return
-	}
-
-	return
-}
-
 func (s *MongoSearch) buildQuery(query *searchquery.Query) (mgoQuery bson.M, err error) {
-	// logger.Trace.Printf("buildQuery: R:%d O:%d E:%d", len(query.Required), len(query.Optional), len(query.Excluded))
+	logger.Trace.Printf("buildQuery: Req:%d Opt:%d Exc:%d", len(query.Required), len(query.Optional), len(query.Excluded))
 	mgoQuery = bson.M{}
-	loop := func(subQueries []searchquery.SubQuery, op string) (err error) {
-		if len(subQueries) > 0 {
-			// logger.Trace.Printf("buildQuery: Making subs for %s with len: %d", op, len(subQueries))
-			subs := make([]bson.M, 0, len(subQueries))
-			for _, sq := range subQueries {
-				built, err := s.buildSubquery(&sq)
-				if err != nil {
-					return err
-				}
-				subs = append(subs, built)
-			}
-			mgoQuery[op] = subs
-		}
+
+	if err = s.loopSubqueries(query.Required, "$and", mgoQuery); err != nil {
 		return
 	}
-	if err = loop(query.Required, "$and"); err != nil {
+	if err = s.loopSubqueries(query.Optional, "$or", mgoQuery); err != nil {
 		return
 	}
-	if err = loop(query.Optional, "$or"); err != nil {
-		return
-	}
-	// if err = loop(query.Excluded, "$nor"); err != nil {
+	// if err = s.loopSubqueries(query.Excluded, "$nor", mgoQuery); err != nil {
 	// 	return
 	// }
+
 	return
 }
 
 func (s *MongoSearch) buildSubquery(subquery *searchquery.SubQuery) (mgoSubquery bson.M, err error) {
-	// logger.Trace.Printf("buildSubquery: %s %s %s", subquery.Field, subquery.Operator, subquery.Value)
+	logger.Trace.Printf("buildSubquery: %s %s %s", subquery.Field, subquery.Operator, subquery.Value)
 
 	if subquery.Query != nil {
 		return s.buildQuery(subquery.Query)
 	}
 
-	var (
-		isArray      bool
-		errInvalidOp             = "Cannot use %s operator with an array value for %s"
-		field                    = subquery.Field
-		value        interface{} = subquery.Value
-	)
+	errInvalidOp := "Cannot use %s operator with an array value for %s"
 
-	if newName, ok := s.Rewrites[field]; ok {
-		field = newName
-	}
-
-	if convertFunc, ok := s.Fields[field]; ok {
-		if value, isArray, err = convertFunc(subquery.Value); err != nil {
-			err = fmt.Errorf("Error converting %s: %s", field, err)
-			return
-		}
+	field, value, isArray, err := s.realValue(subquery)
+	if err != nil {
+		return
 	}
 
 	// Wrap value in proper operator
@@ -282,6 +208,47 @@ func (s *MongoSearch) buildSubscope(subquery *searchquery.SubQuery) (subscope in
 	return subquery.Value, nil
 }
 
+func (s *MongoSearch) canOptimize(subqueries []searchquery.SubQuery) bool {
+	if len(subqueries) == 0 {
+		return false
+	}
+
+	field, _, _, _ := s.realValue(&subqueries[0])
+	for _, sq := range subqueries {
+		if sq.Query != nil {
+			logger.Trace.Printf("canOptimize: sq.Query != nil")
+			return false
+		}
+
+		var err error
+		var isArray bool
+		sqField := sq.Field
+
+		if newName, ok := s.Rewrites[sqField]; ok {
+			sqField = newName
+		}
+
+		if field != sqField {
+			logger.Trace.Printf("canOptimize: %s != %s", field, sqField)
+			return false
+		}
+
+		if convertFunc, ok := s.Fields[sqField]; ok {
+			if _, isArray, err = convertFunc(sq.Value); err != nil {
+				logger.Trace.Printf("canOptimize: %s returned error - %s", sqField, err)
+				return false
+			}
+		}
+
+		if isArray {
+			logger.Trace.Printf("canOptimize: %s is array", sq)
+			return false
+		}
+	}
+
+	return true
+}
+
 func (s *MongoSearch) doMapReduce(session *mgo.Session, query *searchquery.Query, id bson.ObjectId) (info *mgo.MapReduceInfo, err error) {
 	logger.Trace.Printf("doMapReduce: starting")
 	mgoQuery, err := s.buildQuery(query)
@@ -313,4 +280,114 @@ func (s *MongoSearch) doMapReduce(session *mgo.Session, query *searchquery.Query
 
 	db, coll = s.dbFor(session, s.CollItems)
 	return session.DB(db).C(coll).Find(mgoQuery).MapReduce(job, nil)
+}
+
+func (s *MongoSearch) doSearch(query string, filter bson.M, id bson.ObjectId) (err error) {
+	session, err := mgo.Dial(s.Url)
+	if err != nil {
+		return
+	}
+	defer session.Close()
+
+	session.SetSocketTimeout(60 * time.Minute)
+
+	db, coll := s.dbFor(session, s.CollResults)
+
+	q, err := searchquery.Parse(query)
+	if err != nil {
+		return
+	}
+	logger.Info.Printf("Query: %+v", q)
+	a, err := s.buildQuery(q)
+	if err != nil {
+		return
+	}
+	logger.Info.Printf("Aggregate: %+v", a)
+	if _, err = session.DB(db).C(coll).UpsertId(id, bson.M{
+		"$set": bson.M{
+			"query": bson.M{
+				"original": query,
+				"parsed":   q.String(),
+			},
+			"start": time.Now(),
+		},
+	}); err != nil {
+		return
+	}
+
+	info, err := s.doMapReduce(session, q, id)
+	if err != nil {
+		return
+	}
+
+	if err = session.DB(db).C(coll).UpdateId(id, bson.M{
+		"$set": bson.M{
+			"end":  time.Now(),
+			"info": info,
+		},
+	}); err != nil {
+		return
+	}
+
+	return
+}
+
+func (s *MongoSearch) loopSubqueries(subqueries []searchquery.SubQuery, op string, into bson.M) (err error) {
+	if len(subqueries) == 0 {
+		return
+	}
+
+	if s.canOptimize(subqueries) {
+		var field string
+		logger.Trace.Printf("loopSubqueries: canOptimize")
+		if len(subqueries) == 1 {
+			var value interface{}
+			field, value, _, err = s.realValue(&subqueries[0])
+			into[field] = value
+			return
+		}
+
+		values := make([]interface{}, len(subqueries))
+		for i := range subqueries {
+			field, values[i], _, _ = s.realValue(&subqueries[i])
+		}
+
+		switch op {
+		case "$or":
+			into[field] = bson.M{"$in": values}
+		case "$and":
+			into[field] = bson.M{"$all": values}
+		}
+		return
+	}
+
+	logger.Trace.Printf("loopSubqueries: Making subs for %s with len: %d", op, len(subqueries))
+	subs := make([]bson.M, 0, len(subqueries))
+	for _, sq := range subqueries {
+		built, err := s.buildSubquery(&sq)
+		if err != nil {
+			return err
+		}
+		subs = append(subs, built)
+	}
+	into[op] = subs
+	return
+}
+
+func (s *MongoSearch) realValue(subquery *searchquery.SubQuery) (field string, value interface{}, isArray bool, err error) {
+	field = subquery.Field
+	value = subquery.Value
+
+	if newName, ok := s.Rewrites[field]; ok {
+		field = newName
+	}
+
+	if convertFunc, ok := s.Fields[field]; ok {
+		if value, isArray, err = convertFunc(subquery.Value); err != nil {
+			err = fmt.Errorf("Error converting %s: %s", field, err)
+			return
+		}
+	}
+
+	return
 }
