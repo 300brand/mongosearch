@@ -1,6 +1,7 @@
 package mongosearch
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/300brand/logger"
 	"github.com/300brand/searchquery"
@@ -85,7 +86,7 @@ func (s *MongoSearch) dbFor(session *mgo.Session, collection string) (db, coll s
 }
 
 func (s *MongoSearch) buildQuery(query *searchquery.Query) (mgoQuery bson.M, err error) {
-	logger.Trace.Printf("buildQuery: Req:%d Opt:%d Exc:%d", len(query.Required), len(query.Optional), len(query.Excluded))
+	// logger.Trace.Printf("buildQuery: Req:%d Opt:%d Exc:%d", len(query.Required), len(query.Optional), len(query.Excluded))
 	mgoQuery = bson.M{}
 
 	if err = s.loopSubqueries(query.Required, "$and", mgoQuery); err != nil {
@@ -104,7 +105,7 @@ func (s *MongoSearch) buildQuery(query *searchquery.Query) (mgoQuery bson.M, err
 }
 
 func (s *MongoSearch) buildSubquery(subquery *searchquery.SubQuery) (mgoSubquery bson.M, err error) {
-	logger.Trace.Printf("buildSubquery: %s %s %s", subquery.Field, subquery.Operator, subquery.Value)
+	// logger.Trace.Printf("buildSubquery: %s %s %s", subquery.Field, subquery.Operator, subquery.Value)
 
 	if subquery.Query != nil {
 		return s.buildQuery(subquery.Query)
@@ -219,7 +220,7 @@ func (s *MongoSearch) canOptimize(subqueries []searchquery.SubQuery) bool {
 	field, _, _, _ := s.realValue(&subqueries[0])
 	for _, sq := range subqueries {
 		if sq.Query != nil {
-			logger.Trace.Printf("canOptimize: sq.Query != nil")
+			// logger.Trace.Printf("canOptimize: sq.Query != nil")
 			return false
 		}
 
@@ -232,19 +233,19 @@ func (s *MongoSearch) canOptimize(subqueries []searchquery.SubQuery) bool {
 		}
 
 		if field != sqField {
-			logger.Trace.Printf("canOptimize: %s != %s", field, sqField)
+			// logger.Trace.Printf("canOptimize: %s != %s", field, sqField)
 			return false
 		}
 
 		if convertFunc, ok := s.Fields[sqField]; ok {
 			if _, isArray, err = convertFunc(sq.Value); err != nil {
-				logger.Trace.Printf("canOptimize: %s returned error - %s", sqField, err)
+				// logger.Trace.Printf("canOptimize: %s returned error - %s", sqField, err)
 				return false
 			}
 		}
 
 		if isArray {
-			logger.Trace.Printf("canOptimize: %s is array", sq)
+			// logger.Trace.Printf("canOptimize: %s is array", sq)
 			s.reqMapReduce = true
 			return false
 		}
@@ -254,17 +255,17 @@ func (s *MongoSearch) canOptimize(subqueries []searchquery.SubQuery) bool {
 }
 
 func (s *MongoSearch) doMapReduce(session *mgo.Session, query *searchquery.Query, id bson.ObjectId) (info *mgo.MapReduceInfo, err error) {
-	logger.Trace.Printf("doMapReduce: starting")
+	// logger.Trace.Printf("doMapReduce: starting")
 	mgoQuery, err := s.buildQuery(query)
 	if err != nil {
 		return
 	}
-	logger.Trace.Printf("doMapReduce: mgoQuery: %+v", mgoQuery)
+	// logger.Trace.Printf("doMapReduce: mgoQuery: %+v", mgoQuery)
 	scope, err := s.buildScope(query)
 	if err != nil {
 		return
 	}
-	logger.Trace.Printf("doMapReduce: scope: %+v", scope)
+	// logger.Trace.Printf("doMapReduce: scope: %+v", scope)
 
 	db, coll := s.dbFor(session, s.CollResults)
 	coll = fmt.Sprintf("%s_%s", coll, id.Hex())
@@ -306,12 +307,15 @@ func (s *MongoSearch) doSearch(query string, filter bson.M, id bson.ObjectId) (e
 	if err != nil {
 		return
 	}
-	logger.Info.Printf("Query: %+v", q)
-	a, err := s.buildQuery(q)
+
+	logger.Debug.Printf("Query: %+v", q)
+	built, err := s.buildQuery(q)
 	if err != nil {
 		return
 	}
-	logger.Info.Printf("Aggregate: %+v", a)
+	jsonBuilt, _ := json.Marshal(built)
+	logger.Info.Printf("Parsed: %s", jsonBuilt)
+
 	if _, err = session.DB(db).C(coll).UpsertId(id, bson.M{
 		"$set": bson.M{
 			"query": bson.M{
@@ -348,7 +352,7 @@ func (s *MongoSearch) loopSubqueries(subqueries []searchquery.SubQuery, op strin
 
 	if s.canOptimize(subqueries) {
 		var field string
-		logger.Trace.Printf("loopSubqueries: canOptimize")
+		// logger.Trace.Printf("loopSubqueries: canOptimize")
 		if len(subqueries) == 1 {
 			var value interface{}
 			field, value, _, err = s.realValue(&subqueries[0])
@@ -370,7 +374,7 @@ func (s *MongoSearch) loopSubqueries(subqueries []searchquery.SubQuery, op strin
 		return
 	}
 
-	logger.Trace.Printf("loopSubqueries: Making subs for %s with len: %d", op, len(subqueries))
+	// logger.Trace.Printf("loopSubqueries: Making subs for %s with len: %d", op, len(subqueries))
 	subs := make([]bson.M, 0, len(subqueries))
 	for _, sq := range subqueries {
 		built, err := s.buildSubquery(&sq)
