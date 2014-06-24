@@ -24,7 +24,16 @@ var ConvertBsonId Conversion = func(in string) (out interface{}, isArray bool, e
 }
 
 var ConvertSpaces Conversion = func(in string) (out interface{}, isArray bool, err error) {
-	isArray, out = true, strings.Fields(in)
+	if in == "" {
+		return
+	}
+
+	fields := strings.Fields(in)
+	if isArray = len(fields) > 1; isArray {
+		out = fields
+	} else {
+		out = fields[0]
+	}
 	return
 }
 
