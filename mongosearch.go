@@ -13,12 +13,17 @@ import (
 
 type MongoSearch struct {
 	AllWordsField string
-	CollItems     string                // Collection of items to search
-	CollResults   string                // Search resutls collection
-	Fields        map[string]Conversion // Field -> Conversion map; if field not found, entire string used
-	Rewrites      map[string]string     // Rewrite rules for final query output (allows simpler inbound queries and rewrite of default "" field)
-	Url           string                // Connection string to database: host:port/db
+	CollItems     string                    // Collection of items to search
+	CollResults   string                    // Search resutls collection
+	Fields        map[string]ConversionFunc // Field -> ConversionFunc map; if field not found, entire string used
+	Rewrites      map[string]string         // Rewrite rules for final query output (allows simpler inbound queries and rewrite of default "" field)
+	Url           string                    // Connection string to database: host:port/db
 	reqMapReduce  bool
+	fields        struct {
+		keyword string
+		pubdate string
+		pubid   string
+	}
 }
 
 var TimeLayout = "2006-01-02"
@@ -34,14 +39,38 @@ func New(serverUrl, cItems, cResults, allWordsField string) (s *MongoSearch, err
 		Url:           serverUrl,
 		AllWordsField: allWordsField,
 	}
-	s.Fields = map[string]Conversion{
+	s.Fields = map[string]ConversionFunc{
 		"": ConvertSpaces,
 	}
 	s.Rewrites = make(map[string]string)
 	return
 }
 
-func (s *MongoSearch) Convert(field string, convertFunc Conversion) {
+func (s *MongoSearch) SetKeyword(name string, convertFunc ConversionFunc, aliases ...string) {
+	for _, alias := range aliases {
+		s.Rewrite(alias, name)
+	}
+	s.Convert(name, convertFunc)
+	s.fields.keyword = name
+}
+
+func (s *MongoSearch) SetPubdate(name string, convertFunc ConversionFunc, aliases ...string) {
+	for _, alias := range aliases {
+		s.Rewrite(alias, name)
+	}
+	s.Convert(name, convertFunc)
+	s.fields.pubdate = name
+}
+
+func (s *MongoSearch) SetPubid(name string, convertFunc ConversionFunc, aliases ...string) {
+	for _, alias := range aliases {
+		s.Rewrite(alias, name)
+	}
+	s.Convert(name, convertFunc)
+	s.fields.pubid = name
+}
+
+func (s *MongoSearch) Convert(field string, convertFunc ConversionFunc) {
 	s.Fields[field] = convertFunc
 }
 
@@ -51,30 +80,12 @@ func (s *MongoSearch) Rewrite(field, newName string) {
 
 func (s *MongoSearch) Search(query string) (id bson.ObjectId, err error) {
 	id = bson.NewObjectId()
-	err = s.doSearch(query, bson.M{}, id)
-	return
-}
-
-func (s *MongoSearch) SearchFilter(query string, filter bson.M) (id bson.ObjectId, err error) {
-	if filter == nil {
-		filter = bson.M{}
-	}
-	id = bson.NewObjectId()
-	err = s.doSearch(query, filter, id)
-	return
-}
-
-func (s *MongoSearch) SearchFilterInto(query string, filter bson.M, id bson.ObjectId) (err error) {
-	if filter == nil {
-		filter = bson.M{}
-	}
-	id = bson.NewObjectId()
-	err = s.doSearch(query, filter, id)
+	err = s.doSearch(query, id)
 	return
 }
 
 func (s *MongoSearch) SearchInto(query string, id bson.ObjectId) (err error) {
-	return s.doSearch(query, bson.M{}, id)
+	return s.doSearch(query, id)
 }
 
 func (s *MongoSearch) dbFor(session *mgo.Session, collection string) (db, coll string) {
@@ -170,7 +181,7 @@ func (s *MongoSearch) doMapReduce(session *mgo.Session, query *searchquery.Query
 	return session.DB(db).C(coll).Find(mgoQuery).MapReduce(job, nil)
 }
 
-func (s *MongoSearch) doSearch(query string, filter bson.M, id bson.ObjectId) (err error) {
+func (s *MongoSearch) doSearch(query string, id bson.ObjectId) (err error) {
 	session, err := mgo.Dial(s.Url)
 	if err != nil {
 		return
