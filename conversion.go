@@ -7,14 +7,14 @@ import (
 	"time"
 )
 
-type Conversion func(string) (interface{}, bool, error)
+type ConversionFunc func(string) (interface{}, bool, error)
 
-var ConvertDate Conversion = func(in string) (out interface{}, isArray bool, err error) {
+var ConvertDate ConversionFunc = func(in string) (out interface{}, isArray bool, err error) {
 	out, err = time.Parse(TimeLayout, in)
 	return
 }
 
-var ConvertBsonId Conversion = func(in string) (out interface{}, isArray bool, err error) {
+var ConvertBsonId ConversionFunc = func(in string) (out interface{}, isArray bool, err error) {
 	if !bson.IsObjectIdHex(in) {
 		err = fmt.Errorf("Invalid BSON ObjectId: %s", in)
 		return
@@ -23,7 +23,7 @@ var ConvertBsonId Conversion = func(in string) (out interface{}, isArray bool, e
 	return
 }
 
-var ConvertSpaces Conversion = func(in string) (out interface{}, isArray bool, err error) {
+var ConvertSpaces ConversionFunc = func(in string) (out interface{}, isArray bool, err error) {
 	if in == "" {
 		return
 	}
@@ -37,7 +37,7 @@ var ConvertSpaces Conversion = func(in string) (out interface{}, isArray bool, e
 	return
 }
 
-var ConvertDateInt Conversion = func(in string) (out interface{}, isArray bool, err error) {
+var ConvertDateInt ConversionFunc = func(in string) (out interface{}, isArray bool, err error) {
 	t, err := time.Parse(TimeLayout, in)
 	if err != nil {
 		return
