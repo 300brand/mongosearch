@@ -1,5 +1,6 @@
 package mongosearch
 
+/*
 import (
 	"bytes"
 	"encoding/json"
@@ -189,3 +190,4 @@ func testResult(t *testing.T, in interface{}, expected string) {
 		t.Fail()
 	}
 }
+*/
