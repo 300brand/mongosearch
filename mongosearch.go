@@ -227,7 +227,8 @@ func (s *MongoSearch) doSearch(query string, id bson.ObjectId) (err error) {
 				"original": query,
 				"parsed":   q.String(),
 			},
-			"start": time.Now(),
+			"doMapReduce": s.reqMapReduce,
+			"start":       time.Now(),
 		},
 	}); err != nil {
 		return
