@@ -12,14 +12,14 @@ import (
 )
 
 type MongoSearch struct {
-	AllWordsField string
-	CollItems     string                    // Collection of items to search
-	CollResults   string                    // Search resutls collection
-	Fields        map[string]ConversionFunc // Field -> ConversionFunc map; if field not found, entire string used
-	Rewrites      map[string]string         // Rewrite rules for final query output (allows simpler inbound queries and rewrite of default "" field)
-	Url           string                    // Connection string to database: host:port/db
-	reqMapReduce  bool
-	fields        struct {
+	CollItems    string                    // Collection of items to search
+	CollResults  string                    // Search resutls collection
+	Conversions  map[string]ConversionFunc // Field -> ConversionFunc map; if field not found, entire string used
+	Rewrites     map[string]string         // Rewrite rules for final query output (allows simpler inbound queries and rewrite of default "" field)
+	Url          string                    // Connection string to database: host:port/db
+	reqMapReduce bool
+	fields       struct {
+		all     string
 		keyword string
 		pubdate string
 		pubid   string
@@ -32,24 +32,26 @@ var TimeLayout = "2006-01-02"
 // cItems    -
 // cResults  - Collection name in the form <db>.<coll> or <coll> (db from
 //             connection string is uesd)
-func New(serverUrl, cItems, cResults, allWordsField string) (s *MongoSearch, err error) {
+func New(serverUrl, cItems, cResults string) (s *MongoSearch, err error) {
 	s = &MongoSearch{
-		CollItems:     cItems,
-		CollResults:   cResults,
-		Url:           serverUrl,
-		AllWordsField: allWordsField,
+		CollItems:   cItems,
+		CollResults: cResults,
+		Url:         serverUrl,
 	}
-	s.Fields = map[string]ConversionFunc{
-		"": ConvertSpaces,
-	}
+	s.Conversions = make(map[string]ConversionFunc)
 	s.Rewrites = make(map[string]string)
 	return
+}
+
+func (s *MongoSearch) SetAll(name string) {
+	s.fields.all = name
 }
 
 func (s *MongoSearch) SetKeyword(name string, convertFunc ConversionFunc, aliases ...string) {
 	for _, alias := range aliases {
 		s.Rewrite(alias, name)
 	}
+	s.Rewrite(name, name)
 	s.Convert(name, convertFunc)
 	s.fields.keyword = name
 }
@@ -58,6 +60,7 @@ func (s *MongoSearch) SetPubdate(name string, convertFunc ConversionFunc, aliase
 	for _, alias := range aliases {
 		s.Rewrite(alias, name)
 	}
+	s.Rewrite(name, name)
 	s.Convert(name, convertFunc)
 	s.fields.pubdate = name
 }
@@ -66,12 +69,13 @@ func (s *MongoSearch) SetPubid(name string, convertFunc ConversionFunc, aliases 
 	for _, alias := range aliases {
 		s.Rewrite(alias, name)
 	}
+	s.Rewrite(name, name)
 	s.Convert(name, convertFunc)
 	s.fields.pubid = name
 }
 
 func (s *MongoSearch) Convert(field string, convertFunc ConversionFunc) {
-	s.Fields[field] = convertFunc
+	s.Conversions[field] = convertFunc
 }
 
 func (s *MongoSearch) Rewrite(field, newName string) {
@@ -172,7 +176,7 @@ func (s *MongoSearch) doMapReduce(session *mgo.Session, query *searchquery.Query
 	}
 
 	if s.reqMapReduce {
-		job.Map = fmt.Sprintf(mapFunc, s.AllWordsField)
+		job.Map = fmt.Sprintf(mapFunc, s.fields.all)
 	} else {
 		job.Map = mapFuncImmediate
 	}
@@ -182,6 +186,18 @@ func (s *MongoSearch) doMapReduce(session *mgo.Session, query *searchquery.Query
 }
 
 func (s *MongoSearch) doSearch(query string, id bson.ObjectId) (err error) {
+	// Check if all the fields are defined
+	switch "" {
+	case s.fields.all:
+		return fmt.Errorf("Use SetAll() to define a value for the all-words array")
+	case s.fields.keyword:
+		return fmt.Errorf("Use SetKeyword() to define a value for the all-words array")
+	case s.fields.pubdate:
+		return fmt.Errorf("Use SetPubdate() to define a value for the all-words array")
+	case s.fields.pubid:
+		return fmt.Errorf("Use SetPubid() to define a value for the all-words array")
+	}
+
 	session, err := mgo.Dial(s.Url)
 	if err != nil {
 		return
@@ -197,7 +213,7 @@ func (s *MongoSearch) doSearch(query string, id bson.ObjectId) (err error) {
 		return
 	}
 
-	logger.Debug.Printf("Query: %+v", q)
+	// logger.Debug.Printf("Query: %+v", q)
 	built, err := s.buildQuery(q)
 	if err != nil {
 		return

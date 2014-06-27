@@ -24,7 +24,7 @@ func TestQuery(t *testing.T) {
 
 	resetDB(t)
 
-	s, err := New(*ServerAddr, "Items", "Results", "all")
+	s, err := New(*ServerAddr, "Items", "Results")
 	if err != nil {
 		t.Fatal(err)
 	}
