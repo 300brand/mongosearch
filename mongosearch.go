@@ -140,7 +140,7 @@ func (s *MongoSearch) buildSubscope(subquery *searchquery.SubQuery) (subscope in
 		return s.buildScope(subquery.Query)
 	}
 
-	if subquery.Field != "" {
+	if name, ok := s.Rewrites[subquery.Field]; !ok || name != s.fields.keyword {
 		return
 	}
 

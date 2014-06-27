@@ -157,7 +157,7 @@ func (s *MongoSearch) reduce(subquery searchquery.SubQuery) (reduced *searchquer
 	for subquery.Operator == searchquery.OperatorSubquery {
 		reduced = subquery.Query
 		if len(reduced.Excluded) > 0 {
-			logger.Info.Printf("reduce: Enabling MapReduce because Excluded > 0 (%d)", len(reduced.Excluded))
+			// logger.Info.Printf("reduce: Enabling MapReduce because Excluded > 0 (%d)", len(reduced.Excluded))
 			s.reqMapReduce = true
 		}
 		if len(reduced.Optional)+len(reduced.Required) > 1 {
@@ -232,7 +232,7 @@ func (s *MongoSearch) convertSubquery(subquery *searchquery.SubQuery) (mgoSubque
 		return
 	}
 	if isArray {
-		logger.Info.Printf("convertSubquery: Enabling MapReduce because '%#v' is array", value)
+		// logger.Info.Printf("convertSubquery: Enabling MapReduce because '%#v' is array", value)
 		s.reqMapReduce = true
 	}
 

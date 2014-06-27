@@ -47,7 +47,13 @@ func TestBuildQuery(t *testing.T) {
 			t.Errorf("[%d] Expected: %v", i, test.MapReduce)
 		}
 
-		// t.Logf("mgoQuery: %s", b)
+		scope, err := ms.buildScope(query)
+		if err != nil {
+			t.Fatalf("mongosearch.buildScope: %s", err)
+		}
+		b, err = json.MarshalIndent(scope, "", "  ")
+
+		t.Logf("mgoQuery: %s", b)
 
 		// t.Logf("%s", test.Input)
 		var dst bytes.Buffer
