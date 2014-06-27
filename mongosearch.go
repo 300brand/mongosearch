@@ -208,7 +208,7 @@ func (s *MongoSearch) doSearch(query string, id bson.ObjectId) (err error) {
 
 	db, coll := s.dbFor(session, s.CollResults)
 
-	q, err := searchquery.Parse(query)
+	q, err := searchquery.ParseGreedy(query)
 	if err != nil {
 		return
 	}
