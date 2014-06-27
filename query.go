@@ -156,6 +156,9 @@ func (s *MongoSearch) mapFields(query *searchquery.Query) (fields map[string]sea
 func (s *MongoSearch) reduce(subquery searchquery.SubQuery) (reduced *searchquery.Query) {
 	for subquery.Operator == searchquery.OperatorSubquery {
 		reduced = subquery.Query
+		if len(reduced.Excluded) > 0 {
+			s.reqMapReduce = true
+		}
 		if len(reduced.Optional)+len(reduced.Required) > 1 {
 			break
 		}
@@ -211,9 +214,6 @@ func (s *MongoSearch) convertQuery(query *searchquery.Query) (mgoQuery bson.M, e
 	// if err = s.loopSubqueries(query.Excluded, "$nor", mgoQuery); err != nil {
 	// 	return
 	// }
-	if len(query.Excluded) > 0 {
-		s.reqMapReduce = true
-	}
 	return
 }
 
@@ -229,6 +229,9 @@ func (s *MongoSearch) convertSubquery(subquery *searchquery.SubQuery) (mgoSubque
 	field, value, isArray, err := s.realValue(subquery)
 	if err != nil {
 		return
+	}
+	if isArray {
+		s.reqMapReduce = true
 	}
 
 	// Wrap value in proper operator
@@ -312,7 +315,6 @@ func (s *MongoSearch) canOptimize(subqueries []searchquery.SubQuery) bool {
 
 		if isArray {
 			// logger.Trace.Printf("canOptimize: %s is array", sq)
-			s.reqMapReduce = true
 			return false
 		}
 	}

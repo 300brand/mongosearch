@@ -8,13 +8,13 @@ import (
 )
 
 func TestBuildQuery(t *testing.T) {
-	ms, _ := New("", "Items", "Results")
-	ms.SetAll("text.words.all")
-	ms.SetKeyword("text.words.keywords", ConvertSpaces, "keywords")
-	ms.SetPubdate("pubdate.date", ConvertDateInt, "date", "pubdate", "published")
-	ms.SetPubid("publicationid", ConvertBsonId, "pubid")
-
 	for i, test := range tests {
+		ms, _ := New("", "Items", "Results")
+		ms.SetAll("text.words.all")
+		ms.SetKeyword("text.words.keywords", ConvertSpaces, "keywords")
+		ms.SetPubdate("pubdate.date", ConvertDateInt, "date", "pubdate", "published")
+		ms.SetPubid("publicationid", ConvertBsonId, "pubid")
+
 		query, err := searchquery.ParseGreedy(test.Input)
 		if err != nil {
 			t.Fatalf("searchquery.ParseGreedy: %s", err)
@@ -39,6 +39,12 @@ func TestBuildQuery(t *testing.T) {
 		b, err := json.MarshalIndent(mgoQuery, "", "  ")
 		if err != nil {
 			t.Fatalf("json.MarshalIndent: %s", err)
+		}
+
+		if test.MapReduce != ms.reqMapReduce {
+			t.Errorf("[%d] Map Reduce flag did not match", i)
+			t.Errorf("[%d] Query: %s", i, test.Input)
+			t.Errorf("[%d] Expected: %v", i, test.MapReduce)
 		}
 
 		// t.Logf("mgoQuery: %s", b)
