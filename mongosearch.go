@@ -12,13 +12,14 @@ import (
 )
 
 type MongoSearch struct {
-	CollItems    string                    // Collection of items to search
-	CollResults  string                    // Search resutls collection
-	Conversions  map[string]ConversionFunc // Field -> ConversionFunc map; if field not found, entire string used
-	Rewrites     map[string]string         // Rewrite rules for final query output (allows simpler inbound queries and rewrite of default "" field)
-	Url          string                    // Connection string to database: host:port/db
-	reqMapReduce bool
-	fields       struct {
+	CollItems     string                    // Collection of items to search
+	CollResults   string                    // Search resutls collection
+	Conversions   map[string]ConversionFunc // Field -> ConversionFunc map; if field not found, entire string used
+	Rewrites      map[string]string         // Rewrite rules for final query output (allows simpler inbound queries and rewrite of default "" field)
+	Url           string                    // Connection string to database: host:port/db
+	caseSensitive bool
+	reqMapReduce  bool
+	fields        struct {
 		all     string
 		keyword string
 		pubdate string
@@ -45,6 +46,10 @@ func New(serverUrl, cItems, cResults string) (s *MongoSearch, err error) {
 
 func (s *MongoSearch) SetAll(name string) {
 	s.fields.all = name
+}
+
+func (s *MongoSearch) SetCaseSensitive(sensitive bool) {
+	s.caseSensitive = sensitive
 }
 
 func (s *MongoSearch) SetKeyword(name string, convertFunc ConversionFunc, aliases ...string) {
@@ -170,7 +175,8 @@ func (s *MongoSearch) doMapReduce(session *mgo.Session, query *searchquery.Query
 			"db":      db,
 		},
 		Scope: bson.M{
-			"query": scope,
+			"query":         scope,
+			"caseSensitive": s.caseSensitive,
 		},
 		Verbose: true,
 	}
