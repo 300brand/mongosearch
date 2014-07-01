@@ -53,7 +53,7 @@ func TestBuildQuery(t *testing.T) {
 		}
 		b, err = json.MarshalIndent(scope, "", "  ")
 
-		t.Logf("mgoQuery: %s", b)
+		// t.Logf("mgoQuery: %s", b)
 
 		// t.Logf("%s", test.Input)
 		var dst bytes.Buffer
